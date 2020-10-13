@@ -2,6 +2,8 @@
 BASEDIR=$(dirname "$0")
 PROGNAME=$(basename "$0")
 
+LOGFILE="${BASEDIR}/chromium-update.log"
+
 find=/bin/find
 
 warn() {
@@ -16,12 +18,13 @@ echo "${PROGNAME}: $*"
 
 die() {
     warn $*
+	cleanup
     exit 1
 } 
 
 download() {
-	if [[ -f "${curlexe}" ]]; then
-		"${curlexe}" -# $1 > $2
+	if [[ -f "${CURLEXE}" ]]; then
+		"${CURLEXE}" -# $1 > $2
 	else
 		cscript "//nologo" $BASEDIR/wget.js $1 $2
 	fi
@@ -31,21 +34,30 @@ download() {
 } 
 
 fetch() {
-	if [[ -f "${curlexe}" ]]; then
-		echo `"${curlexe}" -s -S $1`
+	if [[ -f "${CURLEXE}" ]]; then
+		echo `"${CURLEXE}" -s -S $1`
 	else
 		echo $(cscript "//nologo" ${BASEDIR}/wget.js $1 | sed 's/[\r\n ]//g')
 	fi
 } 
 
-### main()
-LASTCHANGE_URL="https://www.googleapis.com/download/storage/v1/b/chromium-browser-snapshots/o/Win%2FLAST_CHANGE?alt=media"
-curlexe=$(which curl 2>/dev/null)
+cleanup() {
+    echo "Removing temporary installation directories..."
+	rm -rfv "${BASEDIR}/"CR_*.tmp
+    exit
+}
 
+### variables
+LASTCHANGE_URL="https://www.googleapis.com/download/storage/v1/b/chromium-browser-snapshots/o/Win%2FLAST_CHANGE?alt=media"
+CURLEXE=$(which curl 2>/dev/null)
+SIGCHECK="/c/bin/SysinternalsSuite/sigcheck"
+
+### main()
+trap cleanup INT TERM
 #REVISION=$(curl -s -S $LASTCHANGE_URL)
 REVISION=$(fetch $LASTCHANGE_URL)
 
-if [[ -z REVISION ]]; then
+if [[ -z ${REVISION} ]]; then
 	die "Failed getting latest revision"
 fi
 echo "latest revision is $REVISION"
@@ -66,12 +78,12 @@ if [ ! -f $ZIP_FILE ]; then
 	die "Nothing downloaded!"
 fi
 chmod a+x $ZIP_FILE
-if [[ $? != 0 ]] ; then
+if [ $? != 0 ] ; then
   die "chmod error"
 fi
 echo "done"
 
-echo "Updated distro:" $(ls -l $ZIP_FILE)
+echo "Contemporary distro for update:" $(ls -l $ZIP_FILE)
 echo "Running installer..." 
 $ZIP_FILE
 wait $!
@@ -79,8 +91,14 @@ if [ $? != 0 ] ; then
   die "$ZIP_FILE installation failed"
 fi
 
-printf "removing out of date files %s/*-mini_installer.exe ...\n" "${BASEDIR}"
-$find "${BASEDIR}" -name "*-mini_installer.exe" -type f -mtime +1 | xargs rm -fv {}
+if [[ -x $SIGCHECK ]]; then 
+   ${SIGCHECK} -nobanner "$ZIP_FILE" 2>&1 | tee ${LOGFILE}
+   VERSION=$(${SIGCHECK} -nobanner -n "$ZIP_FILE")
+fi
+
+printf "Removing out of date files %s/*-mini_installer.exe ...\n" "${BASEDIR}"
+${find} "${BASEDIR}/" -name "*-mini_installer.exe" -type f -mtime +2 | xargs rm -fv {}
 printf "...  done\n"
 
-echo "Done: latest revision $REVISION is INSTALLED"
+cleanup
+echo "Done: latest revision $REVISION is INSTALLED version: $VERSION"
