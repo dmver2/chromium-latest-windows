@@ -1,26 +1,29 @@
 # chromium-latest-windows
 Scripts to download and run the latest Windows build of Chromium, 
 as described here https://www.chromium.org/getting-involved/download-chromium.
+<br/>
 tested on Windows 7(sp1), 8, 8.1, 10
+<br/>
 pre-requisites:
 * MingW MSYS http://www.mingw.org/ (sh.exe) 
 	or Git Bash from Git for Windows https://gitforwindows.org/
-* Curl (optional)
+* Curl (optional) https://packages.msys2.org/package/mingw-w64-x86_64-curl or https://curl.haxx.se/windows/
 * Sigcheck (optional) https://docs.microsoft.com/en-us/sysinternals/downloads/sigcheck from SysinternalsSuite
 
 ## short description
-* README.md - this file
-* update.sh - main script, checks and gets latest chromium version, downloads installer and run it synchronously, prints out signature and version info.
-* update-chromium.cmd - batch file to be executed by Windows Task Scheduler (%windir%\system32\taskschd.msc /s).
-* wget.js auxiliary js script for Windows Scripting Host e.g. cscript.exe: performs http requests and returns result or write it down to file.
-* img/screenshot.png - script output, just in case
+* <code>README.md</code> - this file
+* <code>update.sh</code> - main script, checks and gets latest chromium version, downloads installer and run it synchronously, prints out signature and version info.
+* <code>update-chromium.cmd</code> - batch file to be executed by Windows Task Scheduler (<code>%windir%\system32\taskschd.msc /s</code>).
+* <code>wget.js</code> auxiliary js script for Windows Scripting Host e.g. cscript.exe: performs http requests and returns result or download contents to file, if <code>curl</code> is not accessible.
+* <code>img/screenshot.png</code> - script output, just in case
 
 ## short user guide
-download distibutable files to any directory %UDIR% (e.g. '/c/shell')
+Download distributable files to any directory %SCRIPT_DIR% (e.g. <code>/c/shell</code>)
 * Optionally allow cscript ar install curl and make it accessible from bash shell.
 * run bash.exe
-* run ${UDIR}/update.sh
-* wait a bit for process to complete
+* run ${SCRIPT_DIR}/update.sh
+* wait a bit for process to complete.
+### Expected output:
 
 <pre><code>
 dmver@ossifrage MINGW64 ~
@@ -51,3 +54,5 @@ dmver@ossifrage MINGW64 ~
 $ 
 </code></pre>
 
+## to do/to be enhanced
+add checksum test, if distribution checksum will be available (now it's not provided along with mini-installer or zip)
