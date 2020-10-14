@@ -26,7 +26,7 @@ download() {
 	if [[ -f "${CURLEXE}" ]]; then
 		"${CURLEXE}" -# $1 > $2
 	else
-		cscript "//nologo" $BASEDIR/wget.js $1 $2
+		cscript "//nologo" ${BASEDIR}/wget.js $1 $2
 	fi
 	if [ $? != 0 ] ; then
 	  die "Download failed!"
