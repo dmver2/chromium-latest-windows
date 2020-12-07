@@ -2,7 +2,7 @@
 BASEDIR=$(dirname "$0")
 PROGNAME=$(basename "$0")
 
-LOGFILE="${BASEDIR}/chromium-update.log"
+LOGFILE="${BASEDIR}/${PROGNAME%.*}.log"
 
 find=/bin/find
 
@@ -13,7 +13,7 @@ echo "  /  /_\  \|  | |  | _/ __ \ /  ___/ |  |/ /\__  \ \____ \|  |  \   __\   
 echo " /    |    \  |_|  |_\  ___/ \___ \  |    <  / __ \|  |_> >  |  /|  |  |  |  "
 echo " \____|__  /____/____/\___  >____  > |__|_ \(____  /   __/|____/ |__|  |__|  "
 echo "         \/               \/     \/       \/     \/|__|                      "
-echo "${PROGNAME}: $*"
+log "${PROGNAME}: $*"
 }
 
 die() {
@@ -47,6 +47,10 @@ cleanup() {
     exit
 }
 
+log() {
+	echo $(date --iso-8601=seconds) $* 2>&1 | tee -a ${LOGFILE}
+}
+
 ### variables
 LASTCHANGE_URL="https://www.googleapis.com/download/storage/v1/b/chromium-browser-snapshots/o/Win%2FLAST_CHANGE?alt=media"
 CURLEXE=$(which curl 2>/dev/null)
@@ -54,13 +58,14 @@ SIGCHECK="/c/bin/SysinternalsSuite/sigcheck"
 
 ### main()
 trap cleanup INT TERM
+log "Starting ${PROGNAME} at ${BASEDIR}..." 
 #REVISION=$(curl -s -S $LASTCHANGE_URL)
 REVISION=$(fetch $LASTCHANGE_URL)
 
 if [[ -z ${REVISION} ]]; then
 	die "Failed getting latest revision"
 fi
-echo "latest revision is $REVISION"
+log "latest revision is $REVISION"
 
 ZIP_FILE="${BASEDIR}/${REVISION}-mini_installer.exe"
 
@@ -81,10 +86,10 @@ chmod a+x $ZIP_FILE
 if [ $? != 0 ] ; then
   die "chmod error"
 fi
-echo "done"
+log "done"
 
-echo "Contemporary distro for update:" $(ls -l $ZIP_FILE)
-echo "Running installer..." 
+log "Contemporary distro for update:" $(ls -l $ZIP_FILE)
+log "Running installer..." 
 $ZIP_FILE
 wait $!
 if [ $? != 0 ] ; then
@@ -92,13 +97,15 @@ if [ $? != 0 ] ; then
 fi
 
 if [[ -x $SIGCHECK ]]; then 
-   ${SIGCHECK} -nobanner "$ZIP_FILE" 2>&1 | tee ${LOGFILE}
+   ${SIGCHECK} -nobanner "$ZIP_FILE" 2>&1 | tee -a ${LOGFILE}
    VERSION=$(${SIGCHECK} -nobanner -n "$ZIP_FILE")
+else
+   VERSION=""
 fi
 
 printf "Removing out of date files %s/*-mini_installer.exe ...\n" "${BASEDIR}"
-${find} "${BASEDIR}/" -name "*-mini_installer.exe" -type f -mtime +2 | xargs rm -fv {}
+${find} "${BASEDIR}" -name "*-mini_installer.exe" -type f -mtime +2 | xargs rm -fv {}
 printf "...  done\n"
 
 cleanup
-echo "Done: latest revision $REVISION is INSTALLED version: $VERSION"
+log "Done: latest revision $REVISION is INSTALLED (version: $VERSION)"
