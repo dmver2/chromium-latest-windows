@@ -13,7 +13,7 @@ echo "  /  /_\  \|  | |  | _/ __ \ /  ___/ |  |/ /\__  \ \____ \|  |  \   __\   
 echo " /    |    \  |_|  |_\  ___/ \___ \  |    <  / __ \|  |_> >  |  /|  |  |  |  "
 echo " \____|__  /____/____/\___  >____  > |__|_ \(____  /   __/|____/ |__|  |__|  "
 echo "         \/               \/     \/       \/     \/|__|                      "
-log "${PROGNAME}: $*"
+log "${PROGNAME}: $@"
 }
 
 die() {
@@ -44,7 +44,7 @@ fetch() {
 cleanup() {
     echo "Removing temporary installation directories..."
 	rm -rfv "${BASEDIR}/"CR_*.tmp
-    exit
+#    exit
 }
 
 log() {
@@ -107,5 +107,5 @@ printf "Removing out of date files %s/*-mini_installer.exe ...\n" "${BASEDIR}"
 ${find} "${BASEDIR}" -name "*-mini_installer.exe" -type f -mtime +2 | xargs rm -fv {}
 printf "...  done\n"
 
+log "Done: latest revision $REVISION is INSTALLED (version: ${VERSION})"
 cleanup
-log "Done: latest revision $REVISION is INSTALLED (version: $VERSION)"
