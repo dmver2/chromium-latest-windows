@@ -90,10 +90,10 @@ log "done"
 
 log "Contemporary distro for update:" $(ls -l $ZIP_FILE)
 log "Running installer..." 
-$ZIP_FILE
+$ZIP_FILE --system-level
 wait $!
 if [ $? != 0 ] ; then
-  die "$ZIP_FILE installation failed"
+  die "${ZIP_FILE} installation failed"
 fi
 
 if [[ -x $SIGCHECK ]]; then 
@@ -103,9 +103,9 @@ else
    VERSION=""
 fi
 
-printf "Removing out of date files %s/*-mini_installer.exe ...\n" "${BASEDIR}"
-${find} "${BASEDIR}" -name "*-mini_installer.exe" -type f -mtime +2 | xargs rm -fv {}
-printf "...  done\n"
+printf "Removing out of date files %s/*-mini_installer.exe ...\n" "${BASEDIR}" | tee -a ${LOGFILE}
+${find} "${BASEDIR}/" -name "*-mini_installer.exe" -type f -mtime +2 -print0 | xargs -0 rm -fv {} | tee -a ${LOGFILE}
+printf "...  done\n" | tee -a ${LOGFILE}
 
 log "Done: latest revision $REVISION is INSTALLED (version: ${VERSION})"
 cleanup
