@@ -1,0 +1,217 @@
+#!/bin/bash
+
+## template for RBSS log backup
+
+## expected logrotate has been already set up as following:
+# /etc/logrotate.conf
+# or
+#
+# /etc/logrotate.d/tomcat.conf :
+#
+# /u00/tomcat/logs/catalina.out
+# {
+# su tcadm tcadm
+# daily
+# rotate 14
+# compress
+# notifempty
+# missingok
+# copytruncate
+# dateext
+# dateyesterday
+# create 640 tcadm tcadm
+# }
+
+# test logrotate:
+# *	dry run with --debug:
+# su tcadm logrotate -dvf /etc/logrotate.d/tomcat -s /home/tcadm/logbackup/logrotate.status
+# *	real operational run:
+# su tcadm logrotate -vf /etc/logrotate.d/tomcat -s /home/tcadm/logbackup/logrotate.status
+# truncated file expected as a result: /u00/tomcat/logs/catalina.YYYY-MM-DD.log.gz
+##
+# source $HOME/.bashrc expected, but no $HOME available in a process spawned from cron usually.
+# setup PATH, ENV manually
+export PATH=/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin
+
+proc_mode=batch
+
+for p in "$@"; do
+  case $p in
+  -test)
+    testmode=1
+    BKPPOLICY=non_existent_policy
+    ;;
+  -testpolicy)
+    BKPPOLICY=test_tomcat_logs
+    ;;
+  -discrete)
+    proc_mode=discrete
+    ;;
+  *)
+    BKPPOLICY=tomcat_logs_daily
+    ;;
+  esac
+done
+
+export BKPPOLICY
+
+PROGNAME=$(basename $0)
+BASEDIR=$(dirname $0)
+EXPIRY_DAYS=14
+LOG_MMIN=5
+
+export BKPPLANNER=full_logs_daily
+
+RCPT_TO=will.jiang@vtb.com
+
+#NOTIFYMSG=${BASEDIR}/${PROGNAME/\.*/}-$(date -I).msg
+declare -a LOGDIRS=(
+  "/u00/mca/logs" \
+  "/u00/mca/startlogs" \
+  "/u00/mcm/logs" \
+  "/u00/mcm/startlogs" \
+  "/u00/router/logs" \
+  "/u00/router/startlogs" \
+  "/u00/tomcat/logs" \
+)
+
+export BPBACKUP=/usr/openv/netbackup/bin/bpbackup
+LOGROTATE=/usr/sbin/logrotate
+
+if [ -z ${testmode} ]; then
+  SENDMAIL=echo
+  SENDMAILCMD=
+  # SENDMAIL="/usr/sbin/sendmail"
+  # SENDMAILCMD="${SENDMAIL} ${RCPT_TO} < ${NOTIFYMSG}"
+else
+  SENDMAIL=echo
+fi
+
+die() {
+  # echo $* | ${SENDMAIL} ${RCPT_TO}
+  echo $*
+  exit 7
+}
+
+notify() {
+  echo $* 2>&1
+}
+
+move_files() {
+  from=${1}
+  to=${2}
+  find ${from}/ -type f -print0 | xargs -r0 mv -nv -t "${to}/" 2>&1
+  return $?
+}
+
+drain_unprocessed() {
+#  set -x
+  if [[ -d "${1}" ]]; then
+    move_files "${1}" "${2}" && rmdir ${1}
+  fi
+#  set +x
+}
+
+fixauxdir() {
+  module_path=$(dirname ${1})
+  echo "fixing ${module_path}..."
+  localdir=$(basename ${1})
+
+  export new_taped_dir=${module_path}/~${localdir}-taped
+  # make sure log old directories exists
+  if [ "logs" == ${localdir} ]; then
+    taped_dir=${module_path}/~taped
+    if [[ -d $taped_dir ]]; then ## rename directory
+      mv -nv ${taped_dir} ${new_taped_dir}
+    fi
+
+    drain_unprocessed "${module_path}/~inprocess" "${1}"
+    drain_unprocessed "${module_path}/~notsaved" "${1}"
+  else
+    mkdir -p ${new_taped_dir} || notify "Error creating aux directory: ${taped_dir}"
+  fi
+}
+
+backup_logs() {
+  log_dir=${1}
+
+  if [[ ! -d ${log_dir} ]]; then
+    echo "module logs [$1] not found - bypassed"
+    return 1
+  fi
+
+  notify "processing ${log_dir}..."
+  fixauxdir ${log_dir}
+  taped_dir=${new_taped_dir}
+
+  ## find ${log_dir} -regex ".*\.\(log\|zip\)" -type f -mtime +1 -exec mv -nv {} ${backup_dir}/ \; -print >>${NOTIFYMSG} 2>&1
+  # find ${log_dir} ! -name 'catalina.out' -type f -mmin +${LOG_MMIN} -exec mv -nv {} 
+  # ${backup_dir}/ \; -print 2>&1
+
+  case ${proc_mode} in
+  batch)
+    OIFS=${IFS}
+    IFS=$'\n'
+    read -r -d '' -a range < <(find ${log_dir}/ ! -name 'catalina.out' -type f -mmin +${LOG_MMIN} 2>/dev/null)
+    IFS=${OIFS}
+    if (( "${#range[@]}" > 0 )); then
+      notify "backup ${range[@]}"
+      ${BPBACKUP} -p ${BKPPOLICY} -s ${BKPPLANNER} -w "${range[@]}" && mv -nv "${range[@]}" -t ${taped_dir}/ 2>&1
+    fi
+    ;;
+  *)
+    #	Discrete mode
+    export log_dir
+    export taped_dir
+    find ${log_dir} ! -name 'catalina.out' -type f -mmin +${LOG_MMIN} -exec sh -c '
+			for f do
+				printf "backup [%s]\n" "${f}"
+				${BPBACKUP} -p ${BKPPOLICY} -s ${BKPPLANNER} -w "${f}" 2>&1 && mv -nv "${f}" ${taped_dir}/ 2>&1
+			done
+		' exec-sh {} +
+    ;;
+  esac
+}
+
+onexit() {
+  #	${SENDMAILCMD}
+  # remove all outdated logs, older than 2 weeks
+
+  if [ -z ${testmode} ]; then
+    for logdir in "${LOGDIRS[@]}"; do
+      taped=$(dirname ${logdir})/~$(basename ${logdir})-taped
+      find "${taped}/" -type f -mtime +${EXPIRY_DAYS} -print0 | xargs -r0 rm -fv 2>&1
+    done
+  else
+    for logdir in "${LOGDIRS[@]}"; do
+      taped=$(dirname ${logdir})/~$(basename ${logdir})-taped
+      find "${taped}/" -type f -mtime +${EXPIRY_DAYS} -print0 | xargs -r0 echo "to delete:::"
+    done
+  fi
+}
+
+#main
+trap onexit INT TERM
+
+if [ -z ${testmode} ]; then
+  if [[ ! -x ${BPBACKUP} ]]; then
+    notify "FATAL! Executable ${BPBACKUP} not found"
+    exit 1
+  fi
+else
+  notify "===test mode==="
+  if [[ ! -x ${BPBACKUP} ]]; then notify "WARNING! Executable ${BPBACKUP} not found"; fi
+  if [[ ! -x ${LOGROTATE} ]]; then notify "WARNING! Executable ${LOGROTATE} not found"; fi
+  export BPBACKUP="echo ${BPBACKUP}"
+#  export LOGROTATE="echo ${LOGROTATE}"
+fi
+
+# test whether system logrotate has been performed
+# or uncomment forced call below
+# logrotate -v -f ${BASEDIR}/rotate-tomcat.conf -s ${BASEDIR}/logrotate.status 2>&1
+
+for logdir in "${LOGDIRS[@]}"; do
+  backup_logs "${logdir}"
+done
+notify "End of ${PROGNAME}"
+onexit
