@@ -62,7 +62,7 @@ EXPIRY_DAYS=30
 ### to filter-out files, which might be in-use by backend services at the moment.
 ### bypass fresher files, backup them in the next run, later.
 LOG_MMIN=60
-PROCIMG=cat
+PROCIMG=java
 
 export BKPPLANNER=full_logs_daily
 
