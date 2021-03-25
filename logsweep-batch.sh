@@ -62,7 +62,7 @@ EXPIRY_DAYS=30
 ### to filter-out files, which might be in-use by backend services at the moment.
 ### bypass fresher files, backup them in the next run, later.
 LOG_MMIN=60
-PROCIMG=java
+PROCIMG=cat
 
 export BKPPLANNER=full_logs_daily
 
@@ -82,11 +82,11 @@ declare -a LOGDIRS=(
 ###
 #filter=$(printf "! -name %s " $(cat ${skiplist}))
 
-export FILTER="! -name catalina.out \
- ! -name eweb.*-CronJob.log \
- ! -name router.DF*-Cronjob-Thread.log \
- ! -name router.DF*-Recevie-Thread.log \
- ! -name router.DF*-Receive-Thread.log"
+declare -a FILTER=(! -name catalina.out 
+ ! -name eweb.*-CronJob.log 
+ ! -name router.DF*-Cronjob-Thread.log 
+ ! -name router.DF*-Recevie-Thread.log 
+ ! -name router.DF*-Receive-Thread.log)
 
 export BPBACKUP=/usr/openv/netbackup/bin/bpbackup
 LOGROTATE=/usr/sbin/logrotate
@@ -160,12 +160,12 @@ backup_logs() {
 
   module=$(dirname "${log_dir}")
   ### files in use by java
-  ofl=$(ps -eoppid,pid,cmd | awk -v module="${module}" -v img="${PROCIMG}" \
-    'BEGIN{split("", x, ",");} $3 ~ img {cmdls="ls -l /proc/"$2"/fd/"; while \
+  ofl=$(ps -eopid,uid,cmd | awk -v module="${module}" -v img="${PROCIMG}" \
+    'BEGIN{split("", x, ",");} $3 ~ img {cmdls="ls -l /proc/"$1"/fd/"; while \
   ((cmdls | getline line) > 0) {split(line, a, "->"); output=a[2]; if(!x[output] \
   && output ~ module) {x[output]=1;print output; }}; status=close(cmdls);}' 2>/dev/null)
 
-#  ofl=$(ps -efl | awk -v module="${module}" -v img="vim" \
+#  ofl=$(ps -efl | awk -v module="${module}" -v img="cat" \
 #    'BEGIN{split("", x, ",");} $6 ~ img {cmdls="ls -l /proc/"$2"/fd/"; while \
 #  ((cmdls | getline line) > 0) {split(line, a, "->"); output=a[2]; if(!x[output] && output ~ \
 #  module) {x[output]=1;print output; }}; status=close(cmdls);}' 2>/dev/null)
@@ -179,7 +179,7 @@ backup_logs() {
 
   case ${proc_mode} in
   batch)
-    IFS=$'\n' read -r -d '' -a range < <(find ${log_dir}/ -type f -mmin +${LOG_MMIN} ${FILTER} 2>/dev/null)
+    IFS=$'\n' read -r -d '' -a range < <(find "${log_dir}/" -type f -mmin +${LOG_MMIN} "${FILTER[@]}" )
     if (("${#range[@]}" > 0)); then
       filtered=() # filter out opened files
       for f in "${range[@]}"; do
@@ -202,7 +202,7 @@ backup_logs() {
     export taped_dir
     export testmode
 
-    find ${log_dir}/ -type f -mmin +${LOG_MMIN} ${FILTER} -exec sh -c '
+    find ${log_dir}/ -type f -mmin +${LOG_MMIN} "${FILTER[@]}" -exec sh -c '
 			for f do
         if [[ ! $(echo "${ofl}" | grep -Fw "${f}") ]]; then
 				  printf "backup [%s]\n" "${f}"
