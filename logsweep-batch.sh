@@ -79,14 +79,22 @@ declare -a LOGDIRS=(
   "/u00/tomcat/logs"
 )
 
+UNAME=$(uname -s)
+
 ###
 #filter=$(printf "! -name %s " $(cat ${skiplist}))
 
-declare -a FILTER=(! -name catalina.out 
- ! -name eweb.*-CronJob.log 
- ! -name router.DF*-Cronjob-Thread.log 
- ! -name router.DF*-Recevie-Thread.log 
- ! -name router.DF*-Receive-Thread.log)
+FILTER="! -name catalina.out\
+ ! -name eweb.*-CronJob.log\
+ ! -name router.DF*-Cronjob-Thread.log\
+ ! -name router.DF*-Recevie-Thread.log\
+ ! -name router.DF*-Receive-Thread.log"
+
+# declare -a FILTER=(! -name catalina.out 
+# ! -name eweb.*-CronJob.log 
+# ! -name router.DF*-Cronjob-Thread.log 
+# ! -name router.DF*-Recevie-Thread.log 
+# ! -name router.DF*-Receive-Thread.log)
 
 export BPBACKUP=/usr/openv/netbackup/bin/bpbackup
 LOGROTATE=/usr/sbin/logrotate
@@ -159,27 +167,29 @@ backup_logs() {
   taped_dir=${new_taped_dir}
 
   module=$(dirname "${log_dir}")
-  ### files in use by java
-  ofl=$(ps -eopid,uid,cmd | awk -v module="${module}" -v img="${PROCIMG}" \
-    'BEGIN{split("", x, ",");} $3 ~ img {cmdls="ls -l /proc/"$1"/fd/"; while \
-  ((cmdls | getline line) > 0) {split(line, a, "->"); output=a[2]; if(!x[output] \
-  && output ~ module) {x[output]=1;print output; }}; status=close(cmdls);}' 2>/dev/null)
+  ### files in use by java processes running under current user
 
-#  ofl=$(ps -efl | awk -v module="${module}" -v img="cat" \
-#    'BEGIN{split("", x, ",");} $6 ~ img {cmdls="ls -l /proc/"$2"/fd/"; while \
-#  ((cmdls | getline line) > 0) {split(line, a, "->"); output=a[2]; if(!x[output] && output ~ \
-#  module) {x[output]=1;print output; }}; status=close(cmdls);}' 2>/dev/null)
+  case "${UNAME}" in
+  Linux*)
+    ofl=$(ps x -ouid,pid,cmd | awk -v module="${module}" -v img="${PROCIMG}" \
+    'BEGIN{split("", x, ",");} $3 ~ img {cmdls="ls -l /proc/"$2"/fd/"; while \
+    ((cmdls | getline line) > 0) {split(line, a, "->"); output=a[2]; if(!x[output] \
+    && output ~ module) {x[output]=1;print output; }}; status=close(cmdls);}' 2>/dev/null)
+  ;;
+  MINGW*)  
+    ofl=$(ps x -fl | awk -v module="${module}" -v img="cat" \
+    'BEGIN{split("", x, ",");} $6 ~ img {cmdls="ls -l /proc/"$2"/fd/"; while \
+    ((cmdls | getline line) > 0) {split(line, a, "->"); output=a[2]; if(!x[output] && output ~ \
+    module) {x[output]=1;print output; }}; status=close(cmdls);}' 2>/dev/null)
+  ;;
+  esac
 
   export ofl
   echo -e "OPENED:[${ofl}]\n"
 
-  ## find ${log_dir} -regex ".*\.\(log\|zip\)" -type f -mtime +1 -exec mv -nv {} ${backup_dir}/ \; -print >>${NOTIFYMSG} 2>&1
-  # find ${log_dir} ! -name 'catalina.out' -type f -mmin +${LOG_MMIN} -exec mv -nv {}
-  # ${backup_dir}/ \; -print 2>&1
-
   case ${proc_mode} in
   batch)
-    IFS=$'\n' read -r -d '' -a range < <(find "${log_dir}/" -type f -mmin +${LOG_MMIN} "${FILTER[@]}" )
+    IFS=$'\n' read -r -d '' -a range < <(eval find "${log_dir}/" -type f -mmin +"${LOG_MMIN}" "${FILTER}")
     if (("${#range[@]}" > 0)); then
       filtered=() # filter out opened files
       for f in "${range[@]}"; do
@@ -189,10 +199,14 @@ backup_logs() {
           notify "in ise, skipped: ${f}"
         fi
       done
-
-      notify "backup ${filtered[@]}"
-      ${BPBACKUP} -p ${BKPPOLICY} -s ${BKPPLANNER} -w "${filtered[@]}" &&
-        if [ -z ${testmode} ]; then mv -nv "${filtered[@]}" -t ${taped_dir}/ 2>&1; fi
+      
+      if (("${#filtered[@]}" > 0)); then
+        notify "backup ${filtered[@]}"
+        ${BPBACKUP} -p ${BKPPOLICY} -s ${BKPPLANNER} -w "${filtered[@]}" &&
+          if [ -z ${testmode} ]; then mv -nv "${filtered[@]}" -t ${taped_dir}/ 2>&1; fi
+      else
+        notify "nothing to backup"
+      fi
       unset filtered
     fi
     ;;
@@ -202,16 +216,16 @@ backup_logs() {
     export taped_dir
     export testmode
 
-    find ${log_dir}/ -type f -mmin +${LOG_MMIN} "${FILTER[@]}" -exec sh -c '
-			for f do
+    find ${log_dir}/ -type f -mmin +${LOG_MMIN} $(printf '%s ' ${FILTER}) -exec sh -c '
+	for f do
         if [[ ! $(echo "${ofl}" | grep -Fw "${f}") ]]; then
-				  printf "backup [%s]\n" "${f}"
-				  ${BPBACKUP} -p ${BKPPOLICY} -s ${BKPPLANNER} -w "${f}" 2>&1	&& if [ -z ${testmode} ];	then mv -nv "${f}" ${taped_dir}/ 2>&1; fi
+	  printf "backup [%s]\n" "${f}"
+	  ${BPBACKUP} -p ${BKPPOLICY} -s ${BKPPLANNER} -w "${f}" 2>&1	&& if [ -z ${testmode} ]; then mv -nv "${f}" ${taped_dir}/ 2>&1; fi
         else
           echo "in ise, skipped: ${f}"
-				fi
-			done
-		' exec-sh {} +
+	fi
+	done
+	' exec-sh {} +
     ;;
   esac
   unset ofl
